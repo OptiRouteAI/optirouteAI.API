@@ -40,3 +40,4 @@ def obtener_detalles_por_pedido(db: Session, nro_pedido: str):
         raise HTTPException(status_code=404, detail=f"Pedido con número {nro_pedido} no encontrado")
     
     return pedido.detalles  # devuelve solo la lista de detalles
+
