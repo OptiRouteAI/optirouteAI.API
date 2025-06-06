@@ -11,20 +11,26 @@ def crear_pedido(db: Session, nro_pedido: int, cliente: str, direccion: str, det
     db.add(pedido)
     db.flush()
 
-    for det in detalles:
+    for i, det in enumerate(detalles, start=1):
+        um = det["UM"].upper()
+        if um not in ("CJ", "UND"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Detalle #{i}: El campo 'UM' solo puede ser 'CJ' o 'UND'. Valor recibido: '{um}'"
+            )
+
         pedido_det = PedidoDet(
             nro_pedido=pedido.nro_pedido,
             cod_articulo=det["cod_articulo"],
             descripcion=det.get("descripcion", ""),
             cantidad=det["cantidad"],
-            UM=det["UM"]
+            UM=um
         )
         db.add(pedido_det)
 
     db.commit()
     db.refresh(pedido)
     return pedido
-
 def listar_pedidos(db: Session):
     return db.query(Pedido).all()
 
