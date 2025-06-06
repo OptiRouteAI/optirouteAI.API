@@ -48,4 +48,3 @@ def obtener_detalles_de_pedido(nro_pedido: str, db: Session = Depends(get_db)):
         )
         for d in detalles
     ]
-
