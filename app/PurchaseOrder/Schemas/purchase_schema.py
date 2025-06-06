@@ -1,5 +1,6 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
+from datetime import date
 
 class PedidoDetEntradaSchema(BaseModel):
     cod_articulo: str
@@ -24,7 +25,7 @@ class PedidoSalidaSchema(BaseModel):
     nro_pedido: str
     cliente: str
     direccion: str
-    fecha_pedido: str
+    fecha_pedido: date
     detalles: List[PedidoDetSalidaSchema]
 
     @classmethod
@@ -33,7 +34,7 @@ class PedidoSalidaSchema(BaseModel):
             nro_pedido=pedido.nro_pedido,
             cliente=pedido.cliente,
             direccion=pedido.direccion,
-            fecha_pedido=pedido.fecha_pedido.isoformat(),
+            fecha_pedido=pedido.fecha_pedido.date(),
             detalles=[
                 PedidoDetSalidaSchema(
                     cod_articulo=d.cod_articulo,
@@ -43,3 +44,9 @@ class PedidoSalidaSchema(BaseModel):
                 ) for d in pedido.detalles
             ]
         )
+
+
+class PedidoFiltroSchema(BaseModel):
+    nro_pedido: Optional[str] = None
+    cliente: Optional[str] = None
+    fecha: Optional[date] = None
