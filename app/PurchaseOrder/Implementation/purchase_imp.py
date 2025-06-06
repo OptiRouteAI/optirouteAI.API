@@ -27,3 +27,10 @@ def crear_pedido(db: Session, nro_pedido: int, cliente: str, direccion: str, det
 
 def listar_pedidos(db: Session):
     return db.query(Pedido).all()
+
+def obtener_detalles_por_pedido(db: Session, nro_pedido: str):
+    pedido = db.query(Pedido).filter(Pedido.nro_pedido == nro_pedido).first()
+    if not pedido:
+        raise HTTPException(status_code=404, detail=f"Pedido con número {nro_pedido} no encontrado")
+    
+    return pedido.detalles  # devuelve solo la lista de detalles
