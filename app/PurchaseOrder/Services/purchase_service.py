@@ -18,6 +18,10 @@ def filtrar_pedidos(db: Session, nro_pedido: str = None, cliente: str = None, fe
     if cliente:
         filtros.append(Pedido.cliente.ilike(f"%{cliente}%"))
     if fecha:
-        filtros.append(Pedido.fecha_pedido == fecha.isoformat())
+        filtros.append(Pedido.fecha_pedido == fecha)
 
     return db.query(Pedido).filter(and_(*filtros)).all()
+
+def obtener_detalles_pedido(db: Session, nro_pedido: str):
+    from app.PurchaseOrder.Implementation.purchase_imp import obtener_detalles_por_pedido
+    return obtener_detalles_por_pedido(db, nro_pedido)
