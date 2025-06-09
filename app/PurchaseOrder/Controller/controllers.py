@@ -1,37 +1,35 @@
-from fastapi import APIRouter, Depends, status, Query
-from datetime import date
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.PurchaseOrder.Schemas.purchase_schema import PedidoEntradaSchema, PedidoSalidaSchema, PedidoFiltroSchema
-from app.PurchaseOrder.Services.purchase_service import procesar_nuevo_pedido, obtener_pedidos, filtrar_pedidos
-from typing import List, Optional
+from app.Picking.Schemas.picking_schema import GenerarPickingRequest, PickingSalidaSchema, PickingCabeceraSchema
+from app.Picking.Services.picking_service import crear_picking, listar_picking_cabecera
+from typing import List
 
-router = APIRouter(prefix="/purchase-order", tags=["Purchase Order"])
+router = APIRouter(prefix="/picking", tags=["Picking"])
 
-@router.post("/", status_code=status.HTTP_201_CREATED, response_model=PedidoSalidaSchema)
-def crear_pedido(
-    pedido: PedidoEntradaSchema,
+@router.post("/", response_model=PickingSalidaSchema, status_code=status.HTTP_201_CREATED)
+def generar_picking(
+    request: GenerarPickingRequest,
     db: Session = Depends(get_db)
 ):
-    nuevo_pedido = procesar_nuevo_pedido(
-        db,
-        pedido.nro_pedido,
-        pedido.cliente,
-        pedido.direccion,
-        [d.dict() for d in pedido.detalles]
+    nro_pedidos = [p.nro_pedido for p in request.pedidos]
+    picking = crear_picking(db, nro_pedidos)
+
+    return PickingSalidaSchema(
+        nro_picking=picking.nro_picking,
+        fecha_generacion=picking.fecha_generacion.isoformat(),
+        estado=picking.estado,
+        detalles=[
+            {
+                "cod_lpn": d.cod_lpn,
+                "cantidad": d.cantidad,
+                "ubicacion": d.ubicacion,
+                "um": d.um
+            }
+            for d in picking.detalles
+        ]
     )
-    return PedidoSalidaSchema.from_orm(nuevo_pedido)
 
-@router.get("/", response_model=list[PedidoSalidaSchema])
-def listar_pedidos(db: Session = Depends(get_db)):
-    pedidos = obtener_pedidos(db)
-    return [PedidoSalidaSchema.from_orm(p) for p in pedidos]
-
-@router.get("/filtrar", response_model=List[PedidoFiltroSchema])  # puedes cambiar a un schema de salida si quieres
-def buscar_pedidos(
-    nro_pedido: Optional[str] = Query(None),
-    cliente: Optional[str] = Query(None),
-    fecha: Optional[date] = Query(None),
-    db: Session = Depends(get_db)
-):
-    return filtrar_pedidos(db, nro_pedido, cliente, fecha)
+@router.get("/", response_model=List[PickingCabeceraSchema])
+def obtener_todos_los_pickings(db: Session = Depends(get_db)):
+    return listar_picking_cabecera(db)
