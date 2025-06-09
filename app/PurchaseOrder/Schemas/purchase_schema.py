@@ -34,7 +34,7 @@ class PedidoSalidaSchema(BaseModel):
             nro_pedido=pedido.nro_pedido,
             cliente=pedido.cliente,
             direccion=pedido.direccion,
-            fecha_pedido=pedido.fecha_pedido.isoformat(),
+            fecha_pedido=pedido.fecha_pedido.date(),
             detalles=[
                 PedidoDetSalidaSchema(
                     cod_articulo=d.cod_articulo,
