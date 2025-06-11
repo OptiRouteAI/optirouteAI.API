@@ -1,10 +1,10 @@
 # app/Profile/Model/User.py
 
 from sqlalchemy import Column, Integer, String
-from app.database import Base  # ¡Usa el mismo Base que en main.py!
+from app.database import Base
 
 class User(Base):
-    __tablename__ = "users"  # Este nombre debe ser EXACTAMENTE "users"
+    __tablename__ = "users" 
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
