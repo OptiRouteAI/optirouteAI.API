@@ -7,7 +7,17 @@ from app.Inventory.Model.saldo_ubicacion import SaldoUbicacion
 from sqlalchemy import select
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
+from collections import defaultdict
 import re
+from sqlalchemy.sql import case
+
+def extract_rack_col_niv_seq(ubic):
+    partes = ubic.ubicacion.split('.')
+    rack = partes[2]
+    columna = partes[3]
+    nivel = int(partes[4])
+    secuencia = getattr(ubic, "secuencia", 9999)
+    return rack, columna, nivel, secuencia
 
 def generar_codigo_picking(db: Session) -> str:
     ultimo = db.query(PickingCab).order_by(PickingCab.nro_picking.desc()).first()
@@ -92,11 +102,11 @@ def generar_picking_tradicional(db: Session, pedidos: list[str]) -> PickingCab:
     return nuevo_picking
 
 def extract_number(value):
-    # Utiliza una expresión regular para encontrar el número en la cadena
     match = re.search(r'\d+', value)
     if match:
         return int(match.group())
-    return 0  # Valor por defecto si no se encuentra ningún número
+    return 0
+
 
 def create_distance_matrix(locations):
     num_locations = len(locations)
@@ -142,7 +152,7 @@ def generar_picking_con_ia(db: Session, pedidos: list[str]) -> PickingCab:
                 detail=f"El pedido {nro_pedido} ya está asociado a un picking en proceso."
             )
 
-    # Paso 1: Obtener el stock de las ubicaciones
+    # Obtener el stock de las ubicaciones para todos los pedidos
     ubicaciones = []
     detalles_pedidos = []
     for nro_pedido in pedidos:
@@ -156,75 +166,94 @@ def generar_picking_con_ia(db: Session, pedidos: list[str]) -> PickingCab:
                 SaldoUbicacion.cod_articulo == det.cod_articulo,
                 SaldoUbicacion.um == det.UM,
                 SaldoUbicacion.cantidad > 0
-            ).order_by(SaldoUbicacion.secuencia).all())
+            ).all())
 
-    # Crear la matriz de distancias
-    distance_matrix = create_distance_matrix(ubicaciones)
+    # Separar ubicaciones por nivel
+    ubicaciones_nivel_1 = [ubic for ubic in ubicaciones if extract_number(ubic.ubicacion.split('.')[4]) == 1]
+    ubicaciones_otros_niveles = [ubic for ubic in ubicaciones if extract_number(ubic.ubicacion.split('.')[4]) > 1]
 
-    # Crear el modelo de optimización de rutas
-    manager = pywrapcp.RoutingIndexManager(len(distance_matrix), 1, 0)
-    routing = pywrapcp.RoutingModel(manager)
+    detalles_picking = []
 
-    def distance_callback(from_index, to_index):
-        from_node = manager.IndexToNode(from_index)
-        to_node = manager.IndexToNode(to_index)
-        return distance_matrix[from_node][to_node]
+    # Procesar ubicaciones del nivel 1
+    for det in detalles_pedidos:
+        cantidad_requerida = det.cantidad
+        cantidad_asignada = 0
 
-    transit_callback_index = routing.RegisterTransitCallback(distance_callback)
-    routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
-
-    search_parameters = pywrapcp.DefaultRoutingSearchParameters()
-    search_parameters.first_solution_strategy = (
-        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC)
-
-    solution = routing.SolveWithParameters(search_parameters)
-
-    if solution:
-        index = routing.Start(0)
-        route = []
-        while not routing.IsEnd(index):
-            route.append(manager.IndexToNode(index))
-            index = solution.Value(routing.NextVar(index))
-        route.append(manager.IndexToNode(index))
-
-        # Crear el picking optimizado con el mejor orden de ubicaciones
-        nro_picking = generar_codigo_picking(db)
-        nuevo_picking = PickingCab(
-            nro_picking=nro_picking,
-            fecha_generacion=datetime.utcnow(),
-            estado="EP"
-        )
-        db.add(nuevo_picking)
-
-        cantidad_requerida = {det.cod_articulo: det.cantidad for det in detalles_pedidos}
-        cantidad_asignada = {det.cod_articulo: 0 for det in detalles_pedidos}
-
-        for i in route:
-            ubic = ubicaciones[i]
-            cod_articulo = ubic.cod_articulo
-
-            if cantidad_asignada[cod_articulo] < cantidad_requerida[cod_articulo]:
-                cantidad_a_asignar = min(ubic.cantidad, cantidad_requerida[cod_articulo] - cantidad_asignada[cod_articulo])
-
-                picking_det = PickingDet(
-                    nro_picking=nro_picking,
-                    nro_pedido=detalles_pedidos[0].nro_pedido,
-                    cod_lpn=ubic.cod_lpn,
-                    cantidad=cantidad_a_asignar,
-                    ubicacion=ubic.ubicacion,
-                    um=ubic.um
-                )
-                db.add(picking_det)
+        for ubic in ubicaciones_nivel_1:
+            if ubic.cod_articulo == det.cod_articulo and ubic.cantidad > 0:
+                cantidad_a_asignar = min(ubic.cantidad, cantidad_requerida - cantidad_asignada)
+                detalles_picking.append({
+                    "nro_pedido": det.nro_pedido,
+                    "cod_lpn": ubic.cod_lpn,
+                    "cantidad": cantidad_a_asignar,
+                    "ubicacion": ubic.ubicacion,
+                    "um": ubic.um
+                })
                 ubic.cantidad_reservada += cantidad_a_asignar
                 ubic.cantidad -= cantidad_a_asignar
-                cantidad_asignada[cod_articulo] += cantidad_a_asignar
+                cantidad_asignada += cantidad_a_asignar
+                if cantidad_asignada == cantidad_requerida:
+                    break
 
-        db.commit()
-        db.refresh(nuevo_picking)
+    # Si no se ha completado la cantidad requerida, complementar con otras ubicaciones de otros niveles
+    if cantidad_asignada < cantidad_requerida:
+        # Agrupar ubicaciones por rack y columna
+        ubicaciones_por_rack_columna = defaultdict(list)
+        for ubic in ubicaciones_otros_niveles:
+            rack = ubic.ubicacion.split('.')[2]
+            columna = ubic.ubicacion.split('.')[3]
+            ubicaciones_por_rack_columna[(rack, columna)].append(ubic)
 
-        return nuevo_picking
-    else:
-        raise HTTPException(status_code=500, detail="No se encontró una solución óptima.")
+        # Ordenar ubicaciones por rack y columna
+        ubicaciones_ordenadas = sorted(ubicaciones_otros_niveles, key=lambda x: (
+            x.ubicacion.split('.')[2],  # Rack
+            extract_number(x.ubicacion.split('.')[3])  # Columna
+        ))
+
+        for det in detalles_pedidos:
+            cantidad_requerida = det.cantidad
+            cantidad_asignada = sum(detalle["cantidad"] for detalle in detalles_picking if detalle["nro_pedido"] == det.nro_pedido)
+
+            for ubic in ubicaciones_ordenadas:
+                if ubic.cod_articulo == det.cod_articulo and ubic.cantidad > 0:
+                    cantidad_a_asignar = min(ubic.cantidad, cantidad_requerida - cantidad_asignada)
+                    detalles_picking.append({
+                        "nro_pedido": det.nro_pedido,
+                        "cod_lpn": ubic.cod_lpn,
+                        "cantidad": cantidad_a_asignar,
+                        "ubicacion": ubic.ubicacion,
+                        "um": ubic.um
+                    })
+                    ubic.cantidad_reservada += cantidad_a_asignar
+                    ubic.cantidad -= cantidad_a_asignar
+                    cantidad_asignada += cantidad_a_asignar
+                    if cantidad_asignada == cantidad_requerida:
+                        break
+
+    # Crear el picking con los detalles asignados
+    nro_picking = generar_codigo_picking(db)
+    nuevo_picking = PickingCab(
+        nro_picking=nro_picking,
+        fecha_generacion=datetime.utcnow(),
+        estado="EP"
+    )
+    db.add(nuevo_picking)
+
+    for detalle in detalles_picking:
+        picking_det = PickingDet(
+            nro_picking=nro_picking,
+            nro_pedido=detalle["nro_pedido"],
+            cod_lpn=detalle["cod_lpn"],
+            cantidad=detalle["cantidad"],
+            ubicacion=detalle["ubicacion"],
+            um=detalle["um"]
+        )
+        db.add(picking_det)
+
+    db.commit()
+    db.refresh(nuevo_picking)
+
+    return nuevo_picking
 
 def obtener_picking_cabecera(db: Session):
     return db.query(
