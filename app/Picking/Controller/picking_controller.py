@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.Picking.Schemas.picking_schema import GenerarPickingRequest, PickingSalidaSchema, PickingCabeceraSchema
-from app.Picking.Services.picking_service import crear_picking, listar_picking_cabecera
+from app.Picking.Schemas.picking_schema import GenerarPickingRequest, PickingSalidaSchema, PickingCabeceraSchema, PickingRutaAgrupadaSalidaSchema
+from app.Picking.Services.picking_service import crear_picking, listar_picking_cabecera, obtener_ruta_picking
 from typing import List
+
 
 router = APIRouter(prefix="/picking", tags=["Picking"])
 
@@ -33,3 +34,7 @@ def generar_picking(
 @router.get("/", response_model=List[PickingCabeceraSchema])
 def obtener_todos_los_pickings(db: Session = Depends(get_db)):
     return listar_picking_cabecera(db)
+
+@router.get("/ruta/{nro_picking}", response_model=PickingRutaAgrupadaSalidaSchema)
+def obtener_rutas(nro_picking: str, db: Session = Depends(get_db)):
+    return obtener_ruta_picking(db, nro_picking)
