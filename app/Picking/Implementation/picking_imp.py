@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from fastapi import HTTPException
 from app.Picking.Model.picking_order import PickingCab, PickingDet
-from app.PurchaseOrder.Model.purchase_order import PedidoDet
+from app.PurchaseOrder.Model.purchase_order import PedidoDet, Pedido
 from app.Inventory.Model.saldo_ubicacion import SaldoUbicacion
 from sqlalchemy import select
 from ortools.constraint_solver import routing_enums_pb2
@@ -39,6 +39,7 @@ def generar_picking_tradicional(db: Session, pedidos: list[str]) -> PickingCab:
                 detail=f"El pedido {nro_pedido} ya está asociado a un picking en proceso."
             )
 
+    # Generar un nuevo código de picking
     nro_picking = generar_codigo_picking(db)
     nuevo_picking = PickingCab(
         nro_picking=nro_picking,
@@ -48,6 +49,14 @@ def generar_picking_tradicional(db: Session, pedidos: list[str]) -> PickingCab:
     db.add(nuevo_picking)
     db.flush()
 
+    # Actualizar el estado de los pedidos a "EN PICKING"
+    for nro_pedido in pedidos:
+        pedido = db.query(Pedido).filter(Pedido.nro_pedido == nro_pedido).first()
+        if pedido:
+            pedido.estado = "EN PICKING"
+            db.add(pedido)
+
+    # Asignar ubicaciones a los artículos en los pedidos
     for nro_pedido in pedidos:
         detalles = db.query(PedidoDet).filter(PedidoDet.nro_pedido == nro_pedido).all()
 
@@ -60,11 +69,12 @@ def generar_picking_tradicional(db: Session, pedidos: list[str]) -> PickingCab:
         for det in detalles:
             cantidad_restante = det.cantidad
 
+            # Obtener ubicaciones disponibles para el artículo
             ubicaciones = db.query(SaldoUbicacion).filter(
                 SaldoUbicacion.cod_articulo == det.cod_articulo,
                 SaldoUbicacion.um == det.UM,
                 SaldoUbicacion.cantidad > 0
-            ).order_by(SaldoUbicacion.cantidad.desc()).all()
+            ).all()
 
             if not ubicaciones:
                 raise HTTPException(
@@ -72,24 +82,27 @@ def generar_picking_tradicional(db: Session, pedidos: list[str]) -> PickingCab:
                     detail=f"No hay ubicaciones con stock para el artículo {det.cod_articulo} con UM {det.UM}"
                 )
 
+            # Asignar ubicaciones sin ningún criterio específico
             for ubic in ubicaciones:
-                if cantidad_restante == 0:
+                if cantidad_restante <= 0:
                     break
-                tomar = min(ubic.cantidad, cantidad_restante)
+
+                cantidad_a_tomar = min(ubic.cantidad, cantidad_restante)
 
                 picking_det = PickingDet(
                     nro_picking=nro_picking,
                     nro_pedido=nro_pedido,
                     cod_lpn=ubic.cod_lpn,
-                    cantidad=tomar,
+                    cantidad=cantidad_a_tomar,
                     ubicacion=ubic.ubicacion,
                     um=det.UM
                 )
                 db.add(picking_det)
 
-                ubic.cantidad_reservada += tomar
-                ubic.cantidad -= tomar
-                cantidad_restante -= tomar
+                # Actualizar la cantidad y la cantidad reservada en la ubicación
+                ubic.cantidad -= cantidad_a_tomar
+                ubic.cantidad_reservada += cantidad_a_tomar
+                cantidad_restante -= cantidad_a_tomar
 
             if cantidad_restante > 0:
                 raise HTTPException(
@@ -106,7 +119,6 @@ def extract_number(value):
     if match:
         return int(match.group())
     return 0
-
 
 def create_distance_matrix(locations):
     num_locations = len(locations)
@@ -152,9 +164,17 @@ def generar_picking_con_ia(db: Session, pedidos: list[str]) -> PickingCab:
                 detail=f"El pedido {nro_pedido} ya está asociado a un picking en proceso."
             )
 
+    # Actualizar el estado de los pedidos a "EN PICKING"
+    for nro_pedido in pedidos:
+        pedido = db.query(Pedido).filter(Pedido.nro_pedido == nro_pedido).first()
+        if pedido:
+            pedido.estado = "EN PICKING"
+            db.add(pedido)
+
     # Obtener el stock de las ubicaciones para todos los pedidos
-    ubicaciones = []
     detalles_pedidos = []
+    ubicaciones_por_articulo = defaultdict(list)
+
     for nro_pedido in pedidos:
         detalles = db.query(PedidoDet).filter(PedidoDet.nro_pedido == nro_pedido).all()
         if not detalles:
@@ -162,25 +182,30 @@ def generar_picking_con_ia(db: Session, pedidos: list[str]) -> PickingCab:
         detalles_pedidos.extend(detalles)
 
         for det in detalles:
-            ubicaciones.extend(db.query(SaldoUbicacion).filter(
+            ubicaciones = db.query(SaldoUbicacion).filter(
                 SaldoUbicacion.cod_articulo == det.cod_articulo,
                 SaldoUbicacion.um == det.UM,
                 SaldoUbicacion.cantidad > 0
-            ).all())
-
-    # Separar ubicaciones por nivel
-    ubicaciones_nivel_1 = [ubic for ubic in ubicaciones if extract_number(ubic.ubicacion.split('.')[4]) == 1]
-    ubicaciones_otros_niveles = [ubic for ubic in ubicaciones if extract_number(ubic.ubicacion.split('.')[4]) > 1]
+            ).all()
+            ubicaciones_por_articulo[det.cod_articulo].extend(ubicaciones)
 
     detalles_picking = []
 
-    # Procesar ubicaciones del nivel 1
+    # Procesar ubicaciones para cada artículo
     for det in detalles_pedidos:
         cantidad_requerida = det.cantidad
         cantidad_asignada = 0
 
+        # Obtener ubicaciones para el artículo actual
+        ubicaciones_articulo = ubicaciones_por_articulo.get(det.cod_articulo, [])
+
+        # Separar ubicaciones por nivel
+        ubicaciones_nivel_1 = [ubic for ubic in ubicaciones_articulo if extract_number(ubic.ubicacion.split('.')[4]) == 1]
+        ubicaciones_otros_niveles = [ubic for ubic in ubicaciones_articulo if extract_number(ubic.ubicacion.split('.')[4]) > 1]
+
+        # Procesar ubicaciones del nivel 1
         for ubic in ubicaciones_nivel_1:
-            if ubic.cod_articulo == det.cod_articulo and ubic.cantidad > 0:
+            if ubic.cantidad > 0 and cantidad_asignada < cantidad_requerida:
                 cantidad_a_asignar = min(ubic.cantidad, cantidad_requerida - cantidad_asignada)
                 detalles_picking.append({
                     "nro_pedido": det.nro_pedido,
@@ -195,27 +220,16 @@ def generar_picking_con_ia(db: Session, pedidos: list[str]) -> PickingCab:
                 if cantidad_asignada == cantidad_requerida:
                     break
 
-    # Si no se ha completado la cantidad requerida, complementar con otras ubicaciones de otros niveles
-    if cantidad_asignada < cantidad_requerida:
-        # Agrupar ubicaciones por rack y columna
-        ubicaciones_por_rack_columna = defaultdict(list)
-        for ubic in ubicaciones_otros_niveles:
-            rack = ubic.ubicacion.split('.')[2]
-            columna = ubic.ubicacion.split('.')[3]
-            ubicaciones_por_rack_columna[(rack, columna)].append(ubic)
-
-        # Ordenar ubicaciones por rack y columna
-        ubicaciones_ordenadas = sorted(ubicaciones_otros_niveles, key=lambda x: (
-            x.ubicacion.split('.')[2],  # Rack
-            extract_number(x.ubicacion.split('.')[3])  # Columna
-        ))
-
-        for det in detalles_pedidos:
-            cantidad_requerida = det.cantidad
-            cantidad_asignada = sum(detalle["cantidad"] for detalle in detalles_picking if detalle["nro_pedido"] == det.nro_pedido)
+        # Si no se ha completado la cantidad requerida, complementar con otras ubicaciones de otros niveles
+        if cantidad_asignada < cantidad_requerida:
+            # Ordenar ubicaciones de otros niveles por rack y columna
+            ubicaciones_ordenadas = sorted(ubicaciones_otros_niveles, key=lambda x: (
+                x.ubicacion.split('.')[2],  # Rack
+                extract_number(x.ubicacion.split('.')[3])  # Columna
+            ))
 
             for ubic in ubicaciones_ordenadas:
-                if ubic.cod_articulo == det.cod_articulo and ubic.cantidad > 0:
+                if ubic.cantidad > 0 and cantidad_asignada < cantidad_requerida:
                     cantidad_a_asignar = min(ubic.cantidad, cantidad_requerida - cantidad_asignada)
                     detalles_picking.append({
                         "nro_pedido": det.nro_pedido,
