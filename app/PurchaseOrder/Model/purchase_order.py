@@ -9,6 +9,7 @@ class Pedido(Base):
     cliente = Column(String(100), nullable=True)  # Si es opcional
     direccion = Column(String(255), nullable=False)
     fecha_pedido = Column(DateTime, default=datetime.now)
+    estado = Column(String(20), default="INGRESADO") # Estado por defecto
 
     detalles = relationship("PedidoDet", back_populates="pedido", cascade="all, delete-orphan")
 
