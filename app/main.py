@@ -4,15 +4,13 @@ from sqlalchemy import event
 from app.PurchaseOrder.Controller.controllers import router as purchase_router
 from app.Picking.Controller.picking_controller import router as picking_router
 from app.Profile.Controller.user_controller import router as user_router
-from app.Configuration.Controller.configuration_controller import router as configuration_router
-from app.database import engine, Base, SessionLocal
+from Configuration.Controller.configuration_controller import router as configuration_router
+from database import engine, Base, SessionLocal
 from fastapi.middleware.cors import CORSMiddleware
 
 Base.metadata.create_all(bind=engine)
 
 print("Tablas registradas:", Base.metadata.tables.keys())
-
-
 
 app = FastAPI(
     title="OptiRoute AI API",
