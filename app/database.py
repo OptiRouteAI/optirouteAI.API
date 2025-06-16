@@ -2,7 +2,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-SQLALCHEMY_DATABASE_URL = "mysql+pymysql://root:ADMIN@localhost:3306/optiroute_db"
+#SQLALCHEMY_DATABASE_URL = "mysql+pymysql://root:ADMIN@localhost:3306/optiroute_db"
+SQLALCHEMY_DATABASE_URL = "mysql+pymysql://root:tQnFjxqRLhblgQmVqbtSyDTSasYvDhgD@trolley.proxy.rlwy.net:24472/railway"
 
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
