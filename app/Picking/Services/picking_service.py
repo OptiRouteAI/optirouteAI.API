@@ -28,31 +28,34 @@ def listar_picking_cabecera(db: Session):
 
 def obtener_ruta_picking(db: Session, nro_picking: str) -> PickingRutaAgrupadaSalidaSchema:
     query = text("""
-    SELECT 
-        C.NRO_PEDIDO, 
-        C.CLIENTE, 
-        D.COD_ARTICULO, 
-        D.DESCRIPCION, 
-        PD.CANTIDAD,            
-        PD.UM, 
-        PD.UBICACION
-    FROM PICKING_DET PD
-    JOIN PEDIDO_CAB C ON PD.NRO_PEDIDO = C.NRO_PEDIDO
-    JOIN PEDIDO_DET D ON D.NRO_PEDIDO = PD.NRO_PEDIDO
-    WHERE PD.NRO_PICKING = :nro_picking
+       SELECT DISTINCT
+            C.NRO_PEDIDO,
+            C.CLIENTE,
+            D.COD_ARTICULO,
+            D.DESCRIPCION,
+            PD.CANTIDAD,
+            PD.UM,
+            PD.UBICACION,
+            S.NIVEL
+        FROM PICKING_DET PD
+        JOIN PEDIDO_CAB C ON PD.NRO_PEDIDO = C.NRO_PEDIDO
+        JOIN PEDIDO_DET D ON D.NRO_PEDIDO = PD.NRO_PEDIDO
+        JOIN SALDO_UBICACION S ON D.COD_ARTICULO = S.COD_ARTICULO AND PD.UBICACION = S.UBICACION AND S.COD_LPN = PD.COD_LPN
+        WHERE PD.NRO_PICKING = :nro_picking
+        ORDER BY S.NIVEL ASC
     """)
     resultado = db.execute(query, {"nro_picking": nro_picking}).fetchall()
 
     agrupado = defaultdict(list)
 
     for row in resultado:
-        nro_pedido, cliente, cod_articulo, descripcion, cantidad, um, ubicacion = row
+        nro_pedido, cliente, cod_articulo, descripcion, cantidad, um, ubicacion, nivel = row
         agrupado[(nro_pedido, cliente)].append(PickingRutaDetalleSchema(
             cod_articulo=cod_articulo,
             descripcion=descripcion,
             cantidad=cantidad,
             um=um,
-            ubicacion=ubicacion
+            ubicacion=ubicacion,
         ))
 
     rutas = [
