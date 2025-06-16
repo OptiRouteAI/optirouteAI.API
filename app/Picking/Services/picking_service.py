@@ -37,10 +37,10 @@ def obtener_ruta_picking(db: Session, nro_picking: str) -> PickingRutaAgrupadaSa
             PD.UM,
             PD.UBICACION,
             S.NIVEL
-        FROM PICKING_DET PD
-        JOIN PEDIDO_CAB C ON PD.NRO_PEDIDO = C.NRO_PEDIDO
-        JOIN PEDIDO_DET D ON D.NRO_PEDIDO = PD.NRO_PEDIDO
-        JOIN SALDO_UBICACION S ON D.COD_ARTICULO = S.COD_ARTICULO AND PD.UBICACION = S.UBICACION AND S.COD_LPN = PD.COD_LPN
+        FROM picking_det PD
+        JOIN pedido_cab C ON PD.NRO_PEDIDO = C.NRO_PEDIDO
+        JOIN pedido_det D ON D.NRO_PEDIDO = PD.NRO_PEDIDO
+        JOIN saldo_ubicacion S ON D.COD_ARTICULO = S.COD_ARTICULO AND PD.UBICACION = S.UBICACION AND S.COD_LPN = PD.COD_LPN
         WHERE PD.NRO_PICKING = :nro_picking
         ORDER BY S.NIVEL ASC
     """)
