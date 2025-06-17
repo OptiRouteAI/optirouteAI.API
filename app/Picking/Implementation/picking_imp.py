@@ -31,7 +31,7 @@ def generar_picking_tradicional(db: Session, pedidos: list[str]) -> PickingCab:
     for nro_pedido in pedidos:
         picking_existente = db.query(PickingDet).join(PickingCab).filter(
             PickingDet.nro_pedido == nro_pedido,
-            PickingCab.estado == "EP"  # Solo bloqueamos si está en proceso
+            PickingCab.estado == "EN PROCESO"  # Solo bloqueamos si está en proceso
         ).first()
         if picking_existente:
             raise HTTPException(
@@ -44,7 +44,7 @@ def generar_picking_tradicional(db: Session, pedidos: list[str]) -> PickingCab:
     nuevo_picking = PickingCab(
         nro_picking=nro_picking,
         fecha_generacion=datetime.utcnow(),
-        estado="EP"
+        estado="PENDIENTE"
     )
     db.add(nuevo_picking)
     db.flush()
@@ -156,7 +156,7 @@ def generar_picking_con_ia(db: Session, pedidos: list[str]) -> PickingCab:
     for nro_pedido in pedidos:
         picking_existente = db.query(PickingDet).join(PickingCab).filter(
             PickingDet.nro_pedido == nro_pedido,
-            PickingCab.estado == "EP"
+            PickingCab.estado == "PENDIENTE"  # Solo bloqueamos si está en proceso
         ).first()
         if picking_existente:
             raise HTTPException(
@@ -249,7 +249,7 @@ def generar_picking_con_ia(db: Session, pedidos: list[str]) -> PickingCab:
     nuevo_picking = PickingCab(
         nro_picking=nro_picking,
         fecha_generacion=datetime.utcnow(),
-        estado="EP"
+        estado="PENDIENTE"  # Estado inicial del picking
     )
     db.add(nuevo_picking)
 
@@ -275,3 +275,50 @@ def obtener_picking_cabecera(db: Session):
         PickingCab.fecha_generacion,
         PickingCab.estado
     ).order_by(PickingCab.fecha_generacion.desc()).all()
+
+def cancelar_picking(db: Session, nro_picking: str) -> dict:
+    """
+    Cancela un picking específico, libera las cantidades reservadas en las ubicaciones
+    y actualiza el estado de los pedidos asociados a "INGRESADO".
+
+    :param db: La sesión de la base de datos.
+    :param nro_picking: El número de picking a cancelar.
+    :return: Un diccionario con un mensaje indicando que el picking ha sido cancelado.
+    """
+    # Buscar el picking a cancelar
+    picking = db.query(PickingCab).filter(PickingCab.nro_picking == nro_picking).first()
+    if not picking:
+        raise HTTPException(status_code=404, detail="Picking no encontrado.")
+
+    # Verificar si el picking está en un estado que no permite cancelación
+    if picking.estado == "EN PROCESO":
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede cancelar el picking porque está en proceso."
+        )
+
+    # Actualizar el estado del picking a "CANCELADO"
+    picking.estado = "CANCELADO"
+
+    # Obtener todos los detalles del picking para liberar cantidades y actualizar pedidos
+    detalles_picking = db.query(PickingDet).filter(PickingDet.nro_picking == nro_picking).all()
+
+    # Liberar las cantidades reservadas en las ubicaciones
+    for detalle in detalles_picking:
+        ubicacion = db.query(SaldoUbicacion).filter(
+            SaldoUbicacion.cod_lpn == detalle.cod_lpn,
+            SaldoUbicacion.ubicacion == detalle.ubicacion
+        ).first()
+        if ubicacion:
+            ubicacion.cantidad += detalle.cantidad
+            ubicacion.cantidad_reservada -= detalle.cantidad
+
+    # Actualizar el estado de los pedidos asociados a "INGRESADO"
+    for detalle in detalles_picking:
+        pedido = db.query(Pedido).filter(Pedido.nro_pedido == detalle.nro_pedido).first()
+        if pedido:
+            pedido.estado = "INGRESADO"
+            db.add(pedido)
+
+    db.commit()
+    return {"mensaje": f"El picking {nro_picking} ha sido cancelado exitosamente."}
