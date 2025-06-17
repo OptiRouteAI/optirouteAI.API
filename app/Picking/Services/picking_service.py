@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from app.Picking.Implementation.picking_imp import generar_picking_tradicional, generar_picking_con_ia
+from app.Picking.Implementation.picking_imp import generar_picking_tradicional, generar_picking_con_ia, cancelar_picking
 from app.Picking.Model.picking_order import PickingCab
 from app.Configuration.Model.configuration import Configuracion
 from app.Picking.Schemas.picking_schema import PickingRutaCabeceraSchema, PickingRutaDetalleSchema, PickingRutaAgrupadaSalidaSchema
@@ -27,11 +27,21 @@ def listar_picking_cabecera(db: Session):
     return db.query(PickingCab).order_by(PickingCab.fecha_generacion.desc()).all()
 
 def obtener_ruta_picking(db: Session, nro_picking: str) -> PickingRutaAgrupadaSalidaSchema:
+
+    # Actualizar el estado del picking a "EN PROCESO"
+    update_query = text("""
+        UPDATE picking_cab
+        SET estado = 'EN PROCESO'
+        WHERE nro_picking = :nro_picking
+    """)
+    db.execute(update_query, {"nro_picking": nro_picking})
+    db.commit()
+
     query = text("""
        SELECT DISTINCT
             C.NRO_PEDIDO,
             C.CLIENTE,
-            D.COD_ARTICULO,
+            S.COD_ARTICULO,
             D.DESCRIPCION,
             PD.CANTIDAD,
             PD.UM,
@@ -68,3 +78,14 @@ def obtener_ruta_picking(db: Session, nro_picking: str) -> PickingRutaAgrupadaSa
     ]
 
     return PickingRutaAgrupadaSalidaSchema(rutas=rutas)
+
+
+def cancelar_pickings(db: Session, nro_picking: str):
+    """
+    Cancela un picking específico.
+
+    :param db: La sesión de la base de datos.
+    :param nro_picking: El número de picking a cancelar.
+    :return: Un mensaje indicando que el picking ha sido cancelado.
+    """
+    return cancelar_picking(db, nro_picking)

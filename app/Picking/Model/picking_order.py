@@ -16,7 +16,7 @@ class PickingCab(Base):
 
     nro_picking = Column(String(20), primary_key=True, index=True)  # PK con formato PK0000001
     fecha_generacion = Column(DateTime, default=datetime.now, nullable=False)
-    estado = Column(String(2), nullable=False, default="EP")
+    estado = Column(String(15), nullable=False, default="PENDIENTE")  # Estado del picking
 
     detalles = relationship("PickingDet", back_populates="picking", cascade="all, delete")
 
@@ -34,3 +34,4 @@ class PickingDet(Base):
     # Relaciones
     picking = relationship("PickingCab", back_populates="detalles")
     pedido = relationship("Pedido", backref="pickings")
+
