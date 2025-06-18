@@ -50,3 +50,4 @@ class PedidoFiltroSchema(BaseModel):
     nro_pedido: Optional[str] = None
     cliente: Optional[str] = None
     fecha: Optional[date] = None
+    estado: Optional[str] = None
