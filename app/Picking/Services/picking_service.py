@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from app.Picking.Implementation.picking_imp import generar_picking_tradicional, generar_picking_con_ia, cancelar_picking
+from app.Picking.Implementation.picking_imp import generar_picking_tradicional, generar_picking_con_ia, cancelar_pickings, completar_pickings
 from app.Picking.Model.picking_order import PickingCab
 from app.Configuration.Model.configuration import Configuracion
 from app.Picking.Schemas.picking_schema import PickingRutaCabeceraSchema, PickingRutaDetalleSchema, PickingRutaAgrupadaSalidaSchema
@@ -109,7 +109,7 @@ def obtener_ruta_picking(db: Session, nro_picking: str) -> PickingRutaAgrupadaSa
 
     return PickingRutaAgrupadaSalidaSchema(rutas=rutas)
 
-def cancelar_pickings(db: Session, nro_picking: str):
+def cancelar_picking(db: Session, nro_picking: str):
     """
     Cancela un picking específico.
 
@@ -117,4 +117,7 @@ def cancelar_pickings(db: Session, nro_picking: str):
     :param nro_picking: El número de picking a cancelar.
     :return: Un mensaje indicando que el picking ha sido cancelado.
     """
-    return cancelar_picking(db, nro_picking)
+    return cancelar_pickings(db, nro_picking)
+
+def completar_picking(db: Session, nro_picking: str):
+    return completar_pickings(db, nro_picking)

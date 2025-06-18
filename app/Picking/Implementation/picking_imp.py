@@ -38,6 +38,18 @@ def generar_picking_tradicional(db: Session, pedidos: list[str]) -> PickingCab:
                 status_code=400,
                 detail=f"El pedido {nro_pedido} ya está asociado a un picking en proceso."
             )
+        
+        if db.query(Pedido).filter(Pedido.nro_pedido == nro_pedido, Pedido.estado == "COMPLETADO").first():
+            raise HTTPException(
+                status_code=404,
+                detail=f"El pedido {nro_pedido} está COMPLETADO."
+            )
+        
+        if db.query(Pedido).filter(Pedido.nro_pedido == nro_pedido, Pedido.estado == "EN PICKING").first():
+            raise HTTPException(
+                status_code=400,
+                detail=f"El pedido {nro_pedido} ya está en PICKING."
+            )
 
     # Generar un nuevo código de picking
     nro_picking = generar_codigo_picking(db)
@@ -156,12 +168,23 @@ def generar_picking_con_ia(db: Session, pedidos: list[str]) -> PickingCab:
     for nro_pedido in pedidos:
         picking_existente = db.query(PickingDet).join(PickingCab).filter(
             PickingDet.nro_pedido == nro_pedido,
-            PickingCab.estado == "PENDIENTE"  # Solo bloqueamos si está en proceso
+            PickingCab.estado == "PENDIENTE"   # Solo bloqueamos si está en proceso
         ).first()
         if picking_existente:
             raise HTTPException(
                 status_code=400,
                 detail=f"El pedido {nro_pedido} ya está asociado a un picking en proceso."
+            )
+        if db.query(Pedido).filter(Pedido.nro_pedido == nro_pedido, Pedido.estado == "COMPLETADO").first():
+            raise HTTPException(
+                status_code=404,
+                detail=f"El pedido {nro_pedido} está COMPLETADO."
+            )
+        
+        if db.query(Pedido).filter(Pedido.nro_pedido == nro_pedido, Pedido.estado == "EN PICKING").first():
+            raise HTTPException(
+                status_code=400,
+                detail=f"El pedido {nro_pedido} ya está en PICKING."
             )
 
     # Actualizar el estado de los pedidos a "EN PICKING"
@@ -276,7 +299,7 @@ def obtener_picking_cabecera(db: Session):
         PickingCab.estado
     ).order_by(PickingCab.fecha_generacion.desc()).all()
 
-def cancelar_picking(db: Session, nro_picking: str) -> dict:
+def cancelar_pickings(db: Session, nro_picking: str) -> dict:
     """
     Cancela un picking específico, libera las cantidades reservadas en las ubicaciones
     y actualiza el estado de los pedidos asociados a "INGRESADO".
@@ -291,10 +314,10 @@ def cancelar_picking(db: Session, nro_picking: str) -> dict:
         raise HTTPException(status_code=404, detail="Picking no encontrado.")
 
     # Verificar si el picking está en un estado que no permite cancelación
-    if picking.estado == "EN PROCESO":
+    if picking.estado == "COMPLETADO":
         raise HTTPException(
             status_code=400,
-            detail="No se puede cancelar el picking porque está en proceso."
+            detail="No se puede cancelar el picking porque está completado."
         )
 
     # Actualizar el estado del picking a "CANCELADO"
@@ -322,3 +345,37 @@ def cancelar_picking(db: Session, nro_picking: str) -> dict:
 
     db.commit()
     return {"mensaje": f"El picking {nro_picking} ha sido cancelado exitosamente."}
+
+def completar_pickings(db: Session, nro_picking: str) -> dict:
+    """
+    Completa un picking específico y actualiza el estado de los pedidos asociados a "COMPLETADO".
+
+    :param db: La sesión de la base de datos.
+    :param nro_picking: El número de picking a completar.
+    :return: Un diccionario con un mensaje indicando que el picking ha sido completado.
+    """
+    # Buscar el picking a completar
+    picking = db.query(PickingCab).filter(PickingCab.nro_picking == nro_picking).first()
+    if not picking:
+        raise HTTPException(status_code=404, detail="Picking no encontrado.")
+
+    # Verificar si el picking ya está completado
+    if picking.estado == "COMPLETADO":
+        raise HTTPException(
+            status_code=400,
+            detail="El picking ya está completado."
+        )
+
+    # Actualizar el estado del picking a "COMPLETADO"
+    picking.estado = "COMPLETADO"
+
+    # Actualizar el estado de los pedidos asociados a "COMPLETADO"
+    detalles_picking = db.query(PickingDet).filter(PickingDet.nro_picking == nro_picking).all()
+    for detalle in detalles_picking:
+        pedido = db.query(Pedido).filter(Pedido.nro_pedido == detalle.nro_pedido).first()
+        if pedido:
+            pedido.estado = "COMPLETADO"
+            db.add(pedido)
+
+    db.commit()
+    return {"mensaje": f"El picking {nro_picking} ha sido completado exitosamente."}
