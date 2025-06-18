@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.Picking.Schemas.picking_schema import GenerarPickingRequest, PickingSalidaSchema, PickingCabeceraSchema, PickingRutaAgrupadaSalidaSchema
-from app.Picking.Services.picking_service import crear_picking, listar_picking_cabecera, obtener_ruta_picking, cancelar_pickings    
+from app.Picking.Services.picking_service import crear_picking, listar_picking_cabecera, obtener_ruta_picking, cancelar_pickings, completar_pickings  
 from typing import List
 
 
@@ -49,3 +49,14 @@ def cancelar_picking_endpoint(nro_picking: str, db: Session = Depends(get_db)):
     :return: Un mensaje indicando que el picking ha sido cancelado.
     """
     return cancelar_pickings(db, nro_picking)
+
+@router.put("/{nro_picking}/completar", status_code=status.HTTP_200_OK)
+def completar_picking_endpoint(nro_picking: str, db: Session = Depends(get_db)):
+    """
+    Completa un picking específico.
+
+    :param nro_picking: El número de picking a completar.
+    :param db: La sesión de la base de datos.
+    :return: Un mensaje indicando que el picking ha sido completado.
+    """
+    return completar_pickings(db, nro_picking)
